@@ -120,7 +120,7 @@ public class ClassRemapper {
         return false;
     }
 
-    private static boolean remap(File srcFile, File outFile, Map<String, String> mappedName) {
+    private boolean remap(File srcFile, File outFile, Map<String, String> mappedName) {
         System.out.println(srcFile);
         System.out.println(outFile);
         FileInputStream fis = null;
@@ -143,6 +143,7 @@ public class ClassRemapper {
                     if (ctClass.isFrozen()) {
                         ctClass.defrost();
                     }
+                    edit(ctClass);
                     Set<String> keys = mappedName.keySet();
                     for (String key : keys) {
                         ctClass.replaceClassName(key, mappedName.get(key));
@@ -156,9 +157,9 @@ public class ClassRemapper {
                     if (!newEntryName.endsWith(".class")) {
                         newEntryName = newEntryName + ".class";
                     }
-                    ctClass.freeze();
                     zos.putNextEntry(new ZipEntry(newEntryName));
                     zos.write(ctClass.toBytecode());
+                    ctClass.detach();
                 } else {
                     zos.putNextEntry(new ZipEntry(entry.getName()));
                     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
@@ -203,7 +204,7 @@ public class ClassRemapper {
         return false;
     }
 
-    public static void copy(InputStream inputStream, OutputStream outputStream) {
+    private static void copy(InputStream inputStream, OutputStream outputStream) {
         int length = -1;
         byte[] buffer = new byte[4096];
         try {
@@ -216,5 +217,8 @@ public class ClassRemapper {
         }
     }
 
+    protected void edit(CtClass ctClass) {
+
+    }
 
 }
