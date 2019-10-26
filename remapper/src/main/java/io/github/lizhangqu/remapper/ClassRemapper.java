@@ -143,7 +143,7 @@ public class ClassRemapper {
                     if (ctClass.isFrozen()) {
                         ctClass.defrost();
                     }
-                    edit(ctClass);
+                    edit(classPool, ctClass);
                     Set<String> keys = mappedName.keySet();
                     for (String key : keys) {
                         ctClass.replaceClassName(key, mappedName.get(key));
@@ -217,7 +217,7 @@ public class ClassRemapper {
         }
     }
 
-    protected void edit(CtClass ctClass) throws Exception {
+    protected void edit(ClassPool classPool, CtClass ctClass) throws Exception {
 
     }
 
