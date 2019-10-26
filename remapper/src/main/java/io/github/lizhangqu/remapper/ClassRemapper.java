@@ -217,7 +217,7 @@ public class ClassRemapper {
         }
     }
 
-    protected void edit(CtClass ctClass) {
+    protected void edit(CtClass ctClass) throws Exception {
 
     }
 
