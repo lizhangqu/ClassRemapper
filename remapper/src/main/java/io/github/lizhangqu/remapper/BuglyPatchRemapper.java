@@ -1,9 +1,6 @@
 package io.github.lizhangqu.remapper;
 
-import javassist.CannotCompileException;
-import javassist.ClassPool;
-import javassist.CtBehavior;
-import javassist.CtClass;
+import javassist.*;
 import javassist.bytecode.ConstPool;
 import javassist.expr.ExprEditor;
 import javassist.expr.FieldAccess;
@@ -43,22 +40,29 @@ public class BuglyPatchRemapper extends ClassRemapper {
         this.androidJar = androidJar;
     }
 
-    private void editCall(CtClass ctClass) throws CannotCompileException {
+    private void editCall(CtClass ctClass) throws CannotCompileException, NotFoundException {
+        if (ctClass.getName().equals("com.tencent.bugly.crashreport.crash.b")) {
+            CtMethod ctMethod = ctClass.getMethod("a", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/tencent/bugly/crashreport/crash/CrashDetailBean;)V");
+            System.out.println(ctClass.getName() + "." + ctMethod.getName() + ctMethod.getSignature() + " -> Redirect Crash type.");
+
+            //如果字符串是Other Crash，则将crash类型重置为0，对应于bugly的奔溃
+            ctMethod.insertBefore("if(\"Other Crash\".equals($1)) $6.b = 0;");
+        } else if (ctClass.getName().equals("com.tencent.bugly.crashreport.CrashReport")) {
+            System.out.println("Remove method postCatchedException");
+            //将postCatchedException函数删除
+            CtMethod[] ctMethods = ctClass.getDeclaredMethods("postCatchedException");
+            for (CtMethod ctMethod : ctMethods) {
+                ctClass.removeMethod(ctMethod);
+            }
+        }
+
         CtBehavior[] declaredBehaviors = ctClass.getDeclaredBehaviors();
         for (CtBehavior ctBehavior : declaredBehaviors) {
             ctBehavior.instrument(new ExprEditor() {
                 @Override
                 public void edit(MethodCall methodCall) throws CannotCompileException {
                     super.edit(methodCall);
-                    if (!ctClass.getName().contains("com.tencent.bugly.proguard.z")
-                            && methodCall.getClassName().equals("com.tencent.bugly.proguard.z")
-                            && ((methodCall.getMethodName().equals("a") && methodCall.getSignature().equals("(Landroid/content/Context;Ljava/lang/String;J)Z"))
-                            || (methodCall.getMethodName().equals("b") && methodCall.getSignature().equals("(Landroid/content/Context;Ljava/lang/String;)Z")))
-                    ) {
-                        System.out.println(ctClass.getName() + ": " + methodCall.getClassName() + "." + methodCall.getMethodName() + methodCall.getSignature() + " -> Add prefix `shadow_` to second param.");
-                        //对文件锁调用加入shadow前缀
-                        methodCall.replace("$2 = \"shadow_\"+ $2; $_ = $proceed($$);");
-                    } else if ((!ctClass.getName().contains("com.tencent.bugly.crashreport.crash.e") && methodCall.getClassName().equals("com.tencent.bugly.crashreport.crash.e"))
+                    if ((!ctClass.getName().contains("com.tencent.bugly.crashreport.crash.e") && methodCall.getClassName().equals("com.tencent.bugly.crashreport.crash.e"))
                             || (!ctClass.getName().contains("com.tencent.bugly.crashreport.crash.anr.b") && methodCall.getClassName().equals("com.tencent.bugly.crashreport.crash.anr.b"))
                             || (!ctClass.getName().contains("com.tencent.bugly.crashreport.crash.jni.NativeCrashHandler") && methodCall.getClassName().equals("com.tencent.bugly.crashreport.crash.jni.NativeCrashHandler"))
                     ) {
@@ -96,27 +100,6 @@ public class BuglyPatchRemapper extends ClassRemapper {
                         newExpr.replace("$_ = null;");
                     }
                 }
-
-                @Override
-                public void edit(FieldAccess fieldAccess) throws CannotCompileException {
-                    super.edit(fieldAccess);
-                    //不是com.tencent.bugly.crashreport.crash.d访问的不处理
-                    //不是com.tencent.bugly.crashreport.crash.CrashDetailBean上的字段不处理
-                    //不是字段b不处理
-                    //字段B的签名不是int不处理
-                    //强制设置b的值为0
-                    if (ctClass.getName().equals("com.tencent.bugly.crashreport.crash.d")
-                            && fieldAccess.getClassName().equals("com.tencent.bugly.crashreport.crash.CrashDetailBean")
-                            && fieldAccess.getFieldName().equals("b")
-                            && fieldAccess.getSignature().equals("I")) {
-                        //0为java crash
-
-                        System.out.println(ctClass.getName() + ": " + fieldAccess.getClassName() + "." + fieldAccess.getFieldName() + " " + fieldAccess.getSignature() + " -> Set field value = 0.");
-
-                        fieldAccess.replace(String.format("$0.%s = 0;", fieldAccess.getFieldName()));
-
-                    }
-                }
             });
 
         }
@@ -131,8 +114,11 @@ public class BuglyPatchRemapper extends ClassRemapper {
                 || name.equals("com.tencent.bugly.proguard.x")
                 || name.equals("com.tencent.bugly.crashreport.common.info.a")
                 || name.equals("com.tencent.bugly.crashreport.crash.anr.b")
-                || name.equals("com.tencent.bugly.crashreport.crash.jni.NativeCrashHandler")
                 || name.equals("com.tencent.bugly.crashreport.crash.d")
+                || name.startsWith("com.tencent.bugly.proguard.u")//有内部类
+                || name.startsWith("com.tencent.bugly.crashreport.crash.c")//有内部类
+                || name.startsWith("com.tencent.bugly.crashreport.crash.jni.NativeCrashHandler")//有内部类
+
         ) {
             ConstPool constPool = ctClass.getClassFile().getConstPool();
             Field items1 = constPool.getClass().getDeclaredField("items");
@@ -191,12 +177,18 @@ public class BuglyPatchRemapper extends ClassRemapper {
                         Field string = item.getClass().getDeclaredField("string");
                         string.setAccessible(true);
                         string.set(item, "/app_shadow_bugly");
-                    } else if (utf8Info.equals("H5")) {
-                        //将常量池H5修改为Other
+                    } else if (utf8Info.equals("Unity")) {
+                        //将常量池Unity修改为Other Crash
                         Object item = elementAt.invoke(items, i);
                         Field string = item.getClass().getDeclaredField("string");
                         string.setAccessible(true);
-                        string.set(item, "Other");
+                        string.set(item, "Other Crash");
+                    } else if (utf8Info.equals("Cocos")) {
+                        //将常量池Cocos修改为Other Catched
+                        Object item = elementAt.invoke(items, i);
+                        Field string = item.getClass().getDeclaredField("string");
+                        string.setAccessible(true);
+                        string.set(item, "Other Catched");
                     } else if (utf8Info.equals("CrashReportInfo")) {
                         //将常量池CrashReportInfo修改为ShadowCrashReportInfo
                         Object item = elementAt.invoke(items, i);
@@ -209,6 +201,24 @@ public class BuglyPatchRemapper extends ClassRemapper {
                         Field string = item.getClass().getDeclaredField("string");
                         string.setAccessible(true);
                         string.set(item, "ShadowCrashReport");
+                    } else if (utf8Info.equals("native_record_lock")) {
+                        //将常量池native_record_lock修改为shadow_native_record_lock
+                        Object item = elementAt.invoke(items, i);
+                        Field string = item.getClass().getDeclaredField("string");
+                        string.setAccessible(true);
+                        string.set(item, "shadow_native_record_lock");
+                    } else if (utf8Info.equals("local_crash_lock")) {
+                        //将常量池local_crash_lock修改为shadow_local_crash_lock
+                        Object item = elementAt.invoke(items, i);
+                        Field string = item.getClass().getDeclaredField("string");
+                        string.setAccessible(true);
+                        string.set(item, "shadow_local_crash_lock");
+                    } else if (utf8Info.equals("security_info")) {
+                        //将常量池security_info修改为shadow_security_info
+                        Object item = elementAt.invoke(items, i);
+                        Field string = item.getClass().getDeclaredField("string");
+                        string.setAccessible(true);
+                        string.set(item, "shadow_security_info");
                     }
 
                     Object item = elementAt.invoke(items, i);
