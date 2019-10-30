@@ -1,4 +1,6 @@
 apply plugin: 'java'
+apply plugin: 'java.publish'
+
 sourceCompatibility = 1.8
 
 dependencies {
